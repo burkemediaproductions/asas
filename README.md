@@ -29,3 +29,9 @@ The source section titled “How to use the photos on the Justice for Anna page 
 ## ServiceUp
 
 The content-heavy sections remain structured so Articles, FAQs, Glossary entries, Resources, Case Studies and Updates can later be migrated to ServiceUp-managed content types without redesigning the front end.
+
+
+## Assessment forms
+- `/assessment.html` contains a Netlify Forms email gate (`asas-assessment-access`).
+- Successful submissions redirect to `/assessment-access.html`, which contains the interactive 40-item assessment and fillable PDF download.
+- `/ciem-16.html` contains the CIEM-16 follow-on assessment.
