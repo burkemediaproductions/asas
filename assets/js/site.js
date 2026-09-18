@@ -56,6 +56,42 @@
     }
   });
 
+  // Netlify assessment gate: submit the form in the background, then perform a
+  // normal GET navigation to the clean assessment URL. A direct HTML form POST
+  // to /assessment-access/ can reach the site's 404 even though a later GET to
+  // that same URL works correctly.
+  const assessmentGate=document.querySelector('form.assessment-gate[data-netlify="true"]');
+  if(assessmentGate){
+    assessmentGate.addEventListener('submit',async event=>{
+      event.preventDefault();
+      const submit=assessmentGate.querySelector('button[type="submit"]');
+      const originalText=submit?.textContent;
+      if(submit){submit.disabled=true;submit.textContent='Opening assessment…';}
+
+      try{
+        const data=new FormData(assessmentGate);
+        const response=await fetch('/',{
+          method:'POST',
+          headers:{'Content-Type':'application/x-www-form-urlencoded'},
+          body:new URLSearchParams(data).toString()
+        });
+        if(!response.ok) throw new Error(`Netlify form submission failed: ${response.status}`);
+        window.location.assign(assessmentGate.dataset.success||'/assessment-access/');
+      }catch(error){
+        console.error(error);
+        if(submit){submit.disabled=false;submit.textContent=originalText||'Access assessment';}
+        let message=assessmentGate.querySelector('.form-error');
+        if(!message){
+          message=document.createElement('p');
+          message.className='form-error';
+          message.setAttribute('role','alert');
+          assessmentGate.append(message);
+        }
+        message.textContent='We could not open the assessment. Please try again.';
+      }
+    });
+  }
+
   if(!matchMedia('(prefers-reduced-motion: reduce)').matches){
     const els=[...document.querySelectorAll('.parallax img')];
     let ticking=false;
