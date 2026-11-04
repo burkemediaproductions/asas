@@ -1,4 +1,8 @@
 /thank-you-contact/ /thank-you-contact.html 200
+/serviceup            /serviceup/ 301
+/serviceup/home/      /serviceup/ 301
+/serviceup/home       /serviceup/ 301
+/serviceup/*          /serviceup/index.html 200
 /assessment/         /assessment.html         200
 /assessment-access/  /assessment-access.html  200
 /ciem-16/            /ciem-16.html            200
