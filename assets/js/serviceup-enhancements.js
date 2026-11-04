@@ -73,16 +73,26 @@
             }
             const position = heroData?.accent_position || 'after';
             if (accent && position !== 'hidden') {
-              const span = document.createElement('span');
-              span.className = 'accent';
-              span.textContent = accent;
-              h1.replaceChildren();
-              if (position === 'before') {
-                h1.append(span, document.createTextNode(' ' + heading));
-              } else {
-                h1.append(document.createTextNode(heading + ' '), span);
+              // MutationObserver watches #main-content, including this heading.
+              // Only change the DOM if it differs from the desired result;
+              // otherwise each replacement triggers another observer callback forever.
+              const before = position === 'before';
+              const targetText = before ? `${accent} ${heading}` : `${heading} ${accent}`;
+              const existingAccent = h1.querySelector(':scope > span.accent');
+              if (h1.textContent !== targetText || !existingAccent ||
+                  existingAccent.textContent !== accent ||
+                  (before ? h1.firstElementChild !== existingAccent : h1.lastElementChild !== existingAccent)) {
+                const span = document.createElement('span');
+                span.className = 'accent';
+                span.textContent = accent;
+                h1.replaceChildren();
+                if (before) {
+                  h1.append(span, document.createTextNode(' ' + heading));
+                } else {
+                  h1.append(document.createTextNode(heading + ' '), span);
+                }
               }
-            } else if (accent && position === 'hidden') {
+            } else if (accent && position === 'hidden' && h1.textContent !== heading) {
               h1.textContent = heading;
             }
           }
