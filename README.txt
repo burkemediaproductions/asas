@@ -1,25 +1,14 @@
-ASAS SERVICEUP PREVIEW - READY-TO-UPLOAD FILES
+ASAS SERVICEUP LIVE SITE
 
-Place the included files into the existing ASAS website repository using these exact paths:
+The ServiceUp-powered site is generated as static production HTML at the
+normal root routes. Netlify runs `npm run build` and publishes `dist`.
 
-  serviceup/index.html                   REPLACE existing file
-  assets/js/serviceup-enhancements.js    ADD new file
+The former live site is automatically copied to:
 
-Do not delete or replace assets/js/serviceup-renderer.js.
-The existing assets/css/site.css and original assets/img files are reused.
+  /legacy-reference-2026/
 
-Then commit/push to GitHub (or upload both files), deploy through Netlify,
-and hard-refresh /serviceup/ and /serviceup/articles/.
+That reference copy is protected with noindex, nofollow, noarchive headers and
+robots.txt exclusion.
 
-This update:
-- Makes (ASAS) yellow on the ServiceUp home hero.
-- Uses the original colored articles hero image.
-- Shows the original featured images for 14 existing article cards.
-- Recognizes optional heading_accent, accent_position, and article featured_image
-  values from ServiceUp data if present.
-
-NOTE: The ServiceUp Admin field schema is a separate codebase and is NOT
-modified by these website files. Adding the editable fields in that schema
-is still necessary to expose them as editor inputs.
-
-Only the ServiceUp staging preview is changed; live site pages are untouched.
+See SERVICEUP-LIVE-DEPLOYMENT.md for first-deploy verification and instructions
+for connecting the ServiceUp API to a Netlify build hook.
