@@ -5,22 +5,6 @@
   const main=document.querySelector('#main-content');
   const types=['page','article','story','assessment','case-study','resource','update','faq-item','glossary-term'];
   const cache=new Map();
-  const articleOrder=[
-    'articles-what-to-do-when-alienating-sibling-attacks',
-    'articles-common-mistakes-targeted-siblings-make',
-    'articles-17-things-alienator-hopes-you-never-figure-out',
-    'articles-coalition-around-alienator',
-    'articles-community-around-alienated',
-    'articles-how-alienation-happens',
-    'articles-alienation-unmasked',
-    'articles-church-culture-narrative-vulnerability',
-    'articles-personality-trait-cluster',
-    'articles-primary-drivers-of-alienation',
-    'articles-companion-pages',
-    'articles-psychological-factors',
-    'articles-worst-case-asas-profile',
-    'articles-favorite-to-only-child-fantasies'
-  ];
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const attr=esc;
   const staged=url=>{
@@ -64,10 +48,43 @@
   }
   function entryLink(e,type){if(type==='article')return `${base}/articles/${e.slug.replace(/^articles-/,'')}/`;if(type==='story')return e.slug==='justice-for-anna'?`${base}/justice-for-anna/`:`${base}/justice-for-anna/${e.slug.replace(/^justice-for-anna-/,'')}/`;if(type==='case-study')return `${base}/case-studies/${e.slug}/`;if(type==='resource'&&e.data?.url)return staged(e.data.url);if(type==='update')return `${base}/updates/${e.slug}/`;return `${base}/${e.slug}/`}
   function summary(e){const d=e.data||{};return d.summary||d.description||d.definition||d.answer||''}
-  async function hydrateCollections(){for(const section of document.querySelectorAll('[data-collection]')){const type=section.dataset.collection,wrap=section.querySelector('.serviceup-collection'),layout=wrap.dataset.layout;try{let list=await fetchType(type);if(type==='article')list=[...list].sort((a,b)=>{const ai=articleOrder.indexOf(a.slug),bi=articleOrder.indexOf(b.slug);return (ai<0?Number.MAX_SAFE_INTEGER:ai)-(bi<0?Number.MAX_SAFE_INTEGER:bi)});if(layout==='accordion')wrap.innerHTML=list.map(e=>`<details class="faq"><summary>${esc(e.title)}<span>+</span></summary><div>${rich(e.data?.answer||e.data?.body||e.data?.description)}</div></details>`).join('');else if(layout==='glossary')wrap.className+=' glossary-list',wrap.innerHTML=list.map(e=>`<article class="glossary-item"><h2>${esc(e.title)}</h2>${rich(e.data?.definition||e.data?.description)}</article>`).join('');else wrap.className+=' article-grid',wrap.innerHTML=list.map(e=>`<article class="article-card"><div><h2>${esc(e.title)}</h2>${typeof summary(e)==='object'?rich(summary(e)):`<p>${esc(summary(e))}</p>`}<a href="${attr(entryLink(e,type))}">${esc(section.querySelector('.text-link')?.textContent||'Read more →')}</a></div></article>`).join('')}catch(err){wrap.innerHTML='<p>Entries could not be loaded.</p>';console.error(err)}}}
+  function dateValue(value){
+    const raw=value&&typeof value==='object'?(value.utc||value.iso||value.value||value.date):value;
+    const time=raw?Date.parse(raw):NaN;
+    return Number.isFinite(time)?time:0;
+  }
+  function newestArticleFirst(a,b){
+    const ad=a.data||{},bd=b.data||{};
+    const primary=dateValue(b.published_at||bd.published_at||bd.publish_date)-dateValue(a.published_at||ad.published_at||ad.publish_date);
+    if(primary)return primary;
+    const created=dateValue(b.created_at||bd.created_at)-dateValue(a.created_at||ad.created_at);
+    if(created)return created;
+    return String(a.title||'').localeCompare(String(b.title||''),undefined,{numeric:true,sensitivity:'base'});
+  }
+  function articleBody(d){
+    const body=d.body;
+    const hasBody=body?.type==='doc'&&Array.isArray(body.content)&&body.content.some(node=>node.type!=='paragraph'||(node.content?.length||0)>0);
+    if(hasBody)return body;
+    return (d.panels?.panels||[]).find(item=>item.type==='editorial_section')?.data?.body||null;
+  }
+  function renderArticle(entry){
+    const d=entry.data||{};
+    const hero=renderHero({
+      eyebrow:d.eyebrow||'Insight',
+      heading:entry.title,
+      summary:d.summary||'',
+      background_image:d.hero_image||'',
+      background_alt:d.hero_alt||'',
+      variant:'standard',
+      overlay:'dark'
+    });
+    const callout=d.callout_heading?`<aside class="side-card reveal">${d.callout_eyebrow?`<p class="eyebrow">${esc(d.callout_eyebrow)}</p>`:''}<h2>${esc(d.callout_heading)}</h2>${rich(d.callout_body)}${d.callout_link_label?`<a class="text-link" href="${attr(staged(d.callout_link_url))}">${esc(d.callout_link_label)}</a>`:''}</aside>`:'';
+    return `${hero}${divider('light')}<section class="section light-section"><div class="container ${callout?'prose-grid':''}"><article class="prose reveal">${rich(articleBody(d))}</article>${callout}</div></section>`;
+  }
+  async function hydrateCollections(){for(const section of document.querySelectorAll('[data-collection]')){const type=section.dataset.collection,wrap=section.querySelector('.serviceup-collection'),layout=wrap.dataset.layout;try{let list=await fetchType(type);if(type==='article')list=[...list].sort(newestArticleFirst);if(layout==='accordion')wrap.innerHTML=list.map(e=>`<details class="faq"><summary>${esc(e.title)}<span>+</span></summary><div>${rich(e.data?.answer||e.data?.body||e.data?.description)}</div></details>`).join('');else if(layout==='glossary')wrap.className+=' glossary-list',wrap.innerHTML=list.map(e=>`<article class="glossary-item"><h2>${esc(e.title)}</h2>${rich(e.data?.definition||e.data?.description)}</article>`).join('');else wrap.className+=' article-grid',wrap.innerHTML=list.map(e=>`<article class="article-card reveal"><div>${type==='article'?`<p class="eyebrow">${esc(e.data?.eyebrow||'Insight')}</p>`:''}<h2>${esc(e.title)}</h2>${typeof summary(e)==='object'?rich(summary(e)):`<p>${esc(summary(e))}</p>`}<a class="text-link" href="${attr(entryLink(e,type))}">${esc(type==='article'?'Read article →':'Read more →')}</a></div></article>`).join('')}catch(err){wrap.innerHTML='<p>Entries could not be loaded.</p>';console.error(err)}}}
   function route(){let p=location.pathname.replace(new RegExp(`^${base}`),'').replace(/^\/|\/$/g,'');if(!p||p==='home')return {slug:'home',preferred:'page'};if(p==='assessment')return {slug:'assessment-access',preferred:'page'};const bits=p.split('/');if(bits[0]==='articles')return bits.length===1?{slug:'articles',preferred:'page'}:{slug:`articles-${bits.at(-1)}`,preferred:'article'};if(bits[0]==='justice-for-anna')return bits.length===1?{slug:'justice-for-anna',preferred:'story'}:{slug:`justice-for-anna-${bits.at(-1)}`,preferred:'story'};if(bits[0]==='professionals')return {slug:`professionals-${bits.at(-1)}`,preferred:'page'};if(bits[0]==='case-studies'&&bits.length>1)return {slug:bits.at(-1),preferred:'case-study'};if(bits[0]==='updates'&&bits.length>1)return {slug:bits.at(-1),preferred:'update'};return {slug:bits.at(-1),preferred:bits[0]==='ciem-16'?'assessment':'page'} }
   function assessment(entry){const d=entry.data||{},qs=d.questions||[];return `<section class="hero"${d.hero_image?` style="--hero-image:url('${attr(d.hero_image)}')"`:''}><div class="hero-shade"></div><div class="container hero-content"><p class="eyebrow">${esc(d.eyebrow||'Educational assessment')}</p><h1>${esc(entry.title)}</h1><p class="hero-copy">${esc(d.summary||d.intro||'Complete each item and calculate your educational score.')}</p></div></section>${divider('light')}<section class="section light-section"><div class="container"><form class="assessment-form" data-serviceup-assessment>${qs.map((q,i)=>`<fieldset class="assessment-section"><legend>${esc(q.category||`Question ${i+1}`)}</legend><div class="assessment-question"><p><strong>${esc(q.prompt)}</strong></p><div class="rating-options ${entry.slug==='ciem-16'?'four':''}">${Array.from({length:entry.slug==='ciem-16'?4:5},(_,v)=>`<label><input required type="radio" name="q${i}" value="${v}"><span>${v}</span><small>${entry.slug==='ciem-16'?['Not present','Mild','Moderate','Severe'][v]:['Never','Rarely','Sometimes','Often','Very Often'][v]}</small></label>`).join('')}</div></div></fieldset>`).join('')}<div class="assessment-actions"><button class="button primary" type="submit">Calculate score</button><button class="button secondary" type="reset">Reset</button></div><div class="assessment-results" hidden><p class="eyebrow">Educational score</p><div class="overall-score"><strong>Total</strong><span data-total>0</span><small>/ ${qs.length*(entry.slug==='ciem-16'?3:4)}</small></div><p>This score is educational and is not a clinical or legal diagnosis.</p></div></form></div></section>`}
   function bindAssessment(){const form=document.querySelector('[data-serviceup-assessment]');if(!form)return;form.addEventListener('submit',e=>{e.preventDefault();const total=[...new FormData(form).values()].reduce((sum,v)=>sum+Number(v),0),results=form.querySelector('.assessment-results');form.querySelector('[data-total]').textContent=total;results.hidden=false;results.scrollIntoView({behavior:'smooth',block:'center'})});form.addEventListener('reset',()=>{const results=form.querySelector('.assessment-results');results.hidden=true;form.querySelector('[data-total]').textContent='0'})}
-  async function start(){if(!api){main.innerHTML='<section class="section light-section"><div class="container"><h1>ServiceUp API not configured</h1></div></section>';return}const r=route();try{const ordered=[r.preferred,...types.filter(x=>x!==r.preferred)];let entry=null,foundType='';for(const type of ordered){entry=(await fetchType(type)).find(e=>e.slug===r.slug);if(entry){foundType=type;break}}if(!entry)throw new Error('Entry not found');const d=entry.data||{},panels=d.panels?.panels||[];document.title=`${entry.title} | ASAS ServiceUp Preview`;document.querySelector('meta[name="description"]').content=d.seo_description||d.summary||'';main.innerHTML=foundType==='assessment'&&d.questions?.length?assessment(entry):(panels.map((p,i)=>`${i?divider(p.data?.theme):''}${panel(p)}`).join('')||`<section class="section light-section"><div class="container prose"><h1>${esc(entry.title)}</h1>${rich(d.body)}</div></section>`);await hydrateCollections();bindAssessment();document.querySelectorAll('.reveal').forEach(x=>x.classList.add('in-view'))}catch(err){console.error(err);main.innerHTML=`<section class="error-page"><div class="container narrow"><p class="eyebrow">ServiceUp preview</p><h1>Page not available</h1><p>${esc(err.message)}</p><a class="btn yellow" href="${base}/">Preview homepage</a></div></section>`}}
+  async function start(){if(!api){main.innerHTML='<section class="section light-section"><div class="container"><h1>ServiceUp API not configured</h1></div></section>';return}const r=route();try{const ordered=[r.preferred,...types.filter(x=>x!==r.preferred)];let entry=null,foundType='';for(const type of ordered){entry=(await fetchType(type)).find(e=>e.slug===r.slug);if(entry){foundType=type;break}}if(!entry)throw new Error('Entry not found');const d=entry.data||{},panels=d.panels?.panels||[];document.title=`${entry.title} | ASAS ServiceUp Preview`;document.querySelector('meta[name="description"]').content=d.seo_description||d.summary||'';main.innerHTML=foundType==='article'?renderArticle(entry):foundType==='assessment'&&d.questions?.length?assessment(entry):(panels.map((p,i)=>`${i?divider(p.data?.theme):''}${panel(p)}`).join('')||`<section class="section light-section"><div class="container prose"><h1>${esc(entry.title)}</h1>${rich(d.body)}</div></section>`);await hydrateCollections();bindAssessment();document.querySelectorAll('.reveal').forEach(x=>x.classList.add('in-view'))}catch(err){console.error(err);main.innerHTML=`<section class="error-page"><div class="container narrow"><p class="eyebrow">ServiceUp preview</p><h1>Page not available</h1><p>${esc(err.message)}</p><a class="btn yellow" href="${base}/">Preview homepage</a></div></section>`}}
   start();
 })();

@@ -57,9 +57,7 @@
       if (hero) {
         if (onArticles) {
           hero.classList.add('hero-yellow');
-          if (!heroData?.background_image && !hero.style.getPropertyValue('--hero-image')) {
-            hero.style.setProperty('--hero-image', "url('/assets/img/pexels-javierdiazg-72456.jpg')");
-          }
+          hero.style.setProperty('--hero-image', "url('/assets/img/pexels-javierdiazg-72456.jpg')");
         }
         if (onHome) {
           const h1 = hero.querySelector('h1');
