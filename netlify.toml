@@ -6,6 +6,7 @@
   NODE_VERSION = "20"
   SERVICEUP_API_BASE = "https://serviceup-shared-api.onrender.com"
   SITE_URL = "https://asasresearch.org"
+  GA_MEASUREMENT_ID = "G-6W62VX20HH"
 
 [[headers]]
   for = "/legacy-reference-2026/*"
