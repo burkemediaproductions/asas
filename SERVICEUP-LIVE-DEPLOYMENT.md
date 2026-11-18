@@ -42,6 +42,8 @@ Run `npm run build`. Optional build environment variables:
 
 - `SERVICEUP_API_BASE` (already configured in `netlify.toml`)
 - `SITE_URL` (already configured in `netlify.toml`)
+- `SERVICEUP_MENU_SLUG` (defaults to `main`; set this to the slug shown on the
+  ServiceUp Menus screen if the primary menu uses a different slug)
 - `SERVICEUP_EXPORT_FILE` for offline validation using a tenant export
 
 `dist/serviceup-cache-manifest.json` records the generation time and every

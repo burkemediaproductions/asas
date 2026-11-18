@@ -9,9 +9,12 @@ const api = String(process.env.SERVICEUP_API_BASE || 'https://serviceup-shared-a
 const exportFile = process.env.SERVICEUP_EXPORT_FILE;
 const siteUrl = String(process.env.SITE_URL || 'https://asasresearch.org').replace(/\/$/, '');
 const analyticsId = String(process.env.GA_MEASUREMENT_ID || 'G-6W62VX20HH').trim();
+const menuSlug = String(process.env.SERVICEUP_MENU_SLUG || 'main').trim();
 const legacyBase = '/legacy-reference-2026';
 const types = ['page','article','story','assessment','case-study','resource','update','faq-item','glossary-term'];
 let assetVersion = 'serviceup-live';
+let serviceUpMenuItems = [];
+let exportManifest = null;
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const attr = esc;
@@ -156,19 +159,85 @@ function renderAssessment(entry) {
   const d = entry.data || {}, questions = d.questions || [], four = entry.slug === 'ciem-16';
   return `${renderHero({eyebrow:d.eyebrow || 'Educational assessment',heading:entry.title,summary:d.summary || d.intro || '',background_image:d.hero_image || ''})}${divider('light')}<section class="section light-section"><div class="container"><form class="assessment-form" data-serviceup-assessment>${questions.map((q, index) => `<fieldset class="assessment-section"><legend>${esc(q.category || `Question ${index + 1}`)}</legend><div class="assessment-question"><p><strong>${esc(q.prompt)}</strong></p><div class="rating-options ${four ? 'four' : ''}">${Array.from({length:four ? 4 : 5}, (_, value) => `<label><input required type="radio" name="q${index}" value="${value}"><span>${value}</span><small>${four ? ['Not present','Mild','Moderate','Severe'][value] : ['Never','Rarely','Sometimes','Often','Very Often'][value]}</small></label>`).join('')}</div></div></fieldset>`).join('')}<div class="assessment-actions"><button class="button primary" type="submit">Calculate score</button><button class="button secondary" type="reset">Reset</button></div><div class="assessment-results" hidden><p class="eyebrow">Educational score</p><div class="overall-score"><strong>Total</strong><span data-total>0</span><small>/ ${questions.length * (four ? 3 : 4)}</small></div><p>This score is educational and is not a clinical or legal diagnosis.</p></div></form></div></section>`;
 }
-const nav = `<header class="site-header" data-header><div class="nav-shell"><a aria-label="ASAS home" class="brand" href="/"><span aria-hidden="true" class="brand-mark">A</span><span><strong>ASAS</strong><small>Adult Sibling Alienation Syndrome</small></span></a><nav aria-label="Primary navigation" class="desktop-nav"><a href="/start-here/">Start Here</a><div class="nav-drop"><button aria-expanded="false">Understand <span aria-hidden="true" class="nav-chevron"></span></button><div class="drop-menu"><a href="/about/">About ASAS</a><a href="/patterns/">Patterns &amp; Tactics</a><a href="/case-studies/">Case Studies</a><a href="/glossary/">Glossary</a><a href="/faq/">FAQ</a><a href="/acknowledgments/">Acknowledgments</a></div></div><div class="nav-drop"><button aria-expanded="false">Resources <span aria-hidden="true" class="nav-chevron"></span></button><div class="drop-menu"><a href="/resources/">Resources &amp; Tools</a><a href="/assessment/">ASAS Assessment</a><a href="/ciem-16/">CIEM-16</a><a href="/families/">For Families</a><a href="/professionals/legal/">For Legal Professionals</a><a href="/professionals/hospice/">For Hospice &amp; Medical</a><a href="/updates/">Updates</a></div></div><a href="/articles/">Insights</a><a href="/justice-for-anna/">Justice for Anna</a><a class="nav-cta" href="/contact/">Contact</a></nav><button aria-controls="mobile-menu" aria-expanded="false" aria-label="Open menu" class="menu-toggle" data-menu-toggle><span></span><span></span><span></span></button></div></header><div aria-hidden="true" class="mobile-menu" data-mobile-menu id="mobile-menu"><div class="mobile-menu-inner"><a class="mobile-menu-link" href="/">Home</a><a class="mobile-menu-link" href="/start-here/">Start Here</a><a class="mobile-menu-link" href="/about/">About ASAS</a><a class="mobile-menu-link" href="/patterns/">Patterns &amp; Tactics</a><a class="mobile-menu-link" href="/resources/">Resources</a><a class="mobile-menu-link" href="/articles/">Insights</a><a class="mobile-menu-link" href="/justice-for-anna/">Justice for Anna</a><a class="mobile-menu-link" href="/contact/">Contact</a></div></div>`;
+const fallbackNav = [
+  {label:'Start Here',url:'/start-here/'},
+  {label:'Understand',url:'/about/',children:[
+    {label:'About ASAS',url:'/about/'},{label:'Patterns & Tactics',url:'/patterns/'},
+    {label:'Case Studies',url:'/case-studies/'},{label:'Glossary',url:'/glossary/'},
+    {label:'FAQ',url:'/faq/'},{label:'Acknowledgments',url:'/acknowledgments/'}
+  ]},
+  {label:'Resources',url:'/resources/',children:[
+    {label:'Resources & Tools',url:'/resources/'},{label:'ASAS Assessment',url:'/assessment/'},
+    {label:'CIEM-16',url:'/ciem-16/'},{label:'For Families',url:'/families/'},
+    {label:'For Legal Professionals',url:'/professionals/legal/'},
+    {label:'For Hospice & Medical',url:'/professionals/hospice/'},{label:'Updates',url:'/updates/'}
+  ]},
+  {label:'Insights',url:'/articles/'},
+  {label:'Justice for Anna',url:'/justice-for-anna/'},
+  {label:'Contact',url:'/contact/',cta:true}
+];
+const navKey = value => cleanPath(value).replace(/\/$/, '') || '/';
+function resolvedNav() {
+  const overrides = new Map(serviceUpMenuItems.map((item, index) => [navKey(item.url), {...item,index}]));
+  const apply = item => {
+    const override = overrides.get(navKey(item.url));
+    return {
+      ...item,
+      ...(override ? {label:override.label,url:override.url,target:override.target,_order:override.index} : {}),
+      children:Array.isArray(item.children) ? item.children.map(apply) : undefined
+    };
+  };
+  const items = fallbackNav.map(apply);
+  const matchedTopLevel = items.filter(item => Number.isFinite(item._order)).length;
+  if (matchedTopLevel >= 2) items.sort((a,b) => (a._order ?? Number.MAX_SAFE_INTEGER) - (b._order ?? Number.MAX_SAFE_INTEGER));
+  return items;
+}
+const anchor = (item, className = '') => `<a${className ? ` class="${className}"` : ''} ${linkAttrs({url:item.url,target:item.target})}>${esc(item.label)}</a>`;
+function renderNavigation() {
+  const items = resolvedNav();
+  const desktop = items.map(item => {
+    if (!item.children?.length) return anchor(item, item.cta ? 'nav-cta' : '');
+    return `<div class="nav-drop"><button aria-expanded="false">${esc(item.label)} <span aria-hidden="true" class="nav-chevron"></span></button><div class="drop-menu">${item.children.map(child => anchor(child)).join('')}</div></div>`;
+  }).join('');
+  const mobileItems = [{label:'Home',url:'/'}, ...items.flatMap(item => item.children?.length ? [item, ...item.children] : [item])];
+  const mobile = mobileItems.map(item => anchor(item, 'mobile-menu-link')).join('');
+  return `<header class="site-header" data-header><div class="nav-shell"><a aria-label="ASAS home" class="brand" href="/"><span aria-hidden="true" class="brand-mark">A</span><span><strong>ASAS</strong><small>Adult Sibling Alienation Syndrome</small></span></a><nav aria-label="Primary navigation" class="desktop-nav">${desktop}</nav><button aria-controls="mobile-menu" aria-expanded="false" aria-label="Open menu" class="menu-toggle" data-menu-toggle><span></span><span></span><span></span></button></div></header><div aria-hidden="true" class="mobile-menu" data-mobile-menu id="mobile-menu"><div class="mobile-menu-inner">${mobile}</div></div>`;
+}
 const footer = `<footer class="site-footer"><div class="footer-grid"><div><div class="brand footer-brand"><span class="brand-mark">A</span><span><strong>ASAS</strong><small>Clarity in difficult family systems</small></span></div><p>Educational information about adult sibling alienation, vulnerable-parent safeguards, family systems and professional awareness.</p></div><div><h2>Explore</h2><a href="/">Home</a><a href="/start-here/">Start Here</a><a href="/resources/">Resources</a><a href="/articles/">Insights</a></div><div><h2>Connect</h2><a href="/contact/">Contact</a><a href="/share-your-story/">Share Your Story</a><a href="/updates/">Updates</a></div><div><h2>Important</h2><a href="/disclaimer/">Disclaimer</a><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a></div></div><div class="footer-bottom"><span>© 2026 ASAS. Educational resource only.</span><span>Powered by ServiceUp.</span></div></footer>`;
 const analyticsTag = analyticsId ? `<script async src="https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(analyticsId)}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${analyticsId}');</script>` : '';
 function documentHtml(entry, type, body, route) {
   const d = entry.data || {}, title = d.seo_title || `${entry.title} | ASAS`, description = d.seo_description || d.summary || '', canonical = d.canonical_url || `${siteUrl}${route}`;
   const schema = { '@context':'https://schema.org', '@type': type === 'article' ? 'Article' : 'WebPage', headline:entry.title, name:entry.title, description, url:canonical, inLanguage:'en-US' };
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><meta name="description" content="${attr(description)}"><link rel="canonical" href="${attr(canonical)}"><meta property="og:title" content="${attr(title)}"><meta property="og:description" content="${attr(description)}"><meta property="og:url" content="${attr(canonical)}"><meta property="og:type" content="${type === 'article' ? 'article' : 'website'}"><meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#f2c94c"><link rel="stylesheet" href="/assets/css/site.css?v=${assetVersion}"><script type="application/ld+json">${JSON.stringify(schema).replace(/</g, '\\u003c')}</script>${analyticsTag}</head><body><a class="skip-link" href="#main-content">Skip to content</a>${nav}<main id="main-content">${body}</main>${footer}<script defer src="/assets/js/site.js?v=${assetVersion}"></script>${type === 'assessment' ? `<script defer src="/assets/js/serviceup-static.js?v=${assetVersion}"></script>` : ''}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><meta name="description" content="${attr(description)}"><link rel="canonical" href="${attr(canonical)}"><meta property="og:title" content="${attr(title)}"><meta property="og:description" content="${attr(description)}"><meta property="og:url" content="${attr(canonical)}"><meta property="og:type" content="${type === 'article' ? 'article' : 'website'}"><meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#f2c94c"><link rel="stylesheet" href="/assets/css/site.css?v=${assetVersion}"><script type="application/ld+json">${JSON.stringify(schema).replace(/</g, '\\u003c')}</script>${analyticsTag}</head><body><a class="skip-link" href="#main-content">Skip to content</a>${renderNavigation()}<main id="main-content">${body}</main>${footer}<script defer src="/assets/js/site.js?v=${assetVersion}"></script>${type === 'assessment' ? `<script defer src="/assets/js/serviceup-static.js?v=${assetVersion}"></script>` : ''}</body></html>`;
+}
+
+async function loadMenu() {
+  const candidates = [...new Set([menuSlug, 'main', 'main-navigation', 'main-menu', 'primary-navigation', 'primary', 'header'])].filter(Boolean);
+  if (exportManifest) {
+    const menu = (exportManifest.menus || []).find(item => candidates.includes(item.slug));
+    serviceUpMenuItems = Array.isArray(menu?.config?.items) ? menu.config.items : (Array.isArray(menu?.items) ? menu.items : []);
+    if (serviceUpMenuItems.length) console.log(`Using exported ServiceUp menu ${menu.slug} (${serviceUpMenuItems.length} items)`);
+    else console.warn(`No populated ServiceUp menu found in export; using built-in ASAS navigation.`);
+    return;
+  }
+  for (const slug of candidates) {
+    const response = await fetch(`${api}/api/public/menu/${encodeURIComponent(slug)}`, {headers:{Accept:'application/json',Origin:siteUrl}});
+    if (response.status === 404) continue;
+    if (!response.ok) throw new Error(`ServiceUp menu ${slug} request failed: ${response.status}`);
+    const value = await response.json();
+    serviceUpMenuItems = Array.isArray(value?.items) ? value.items : [];
+    if (serviceUpMenuItems.length) {
+      console.log(`Using ServiceUp menu ${slug} (${serviceUpMenuItems.length} items)`);
+      return;
+    }
+  }
+  console.warn(`No populated ServiceUp menu found; using built-in ASAS navigation. Set SERVICEUP_MENU_SLUG in Netlify if the menu uses another slug.`);
 }
 
 async function loadContent() {
   if (exportFile) {
-    const manifest = JSON.parse(await fs.readFile(path.resolve(exportFile), 'utf8'));
-    for (const type of types) collections.set(type, (manifest.entries || []).filter(entry => entry.content_type_slug === type && entry.status === 'published'));
+    exportManifest = JSON.parse(await fs.readFile(path.resolve(exportFile), 'utf8'));
+    for (const type of types) collections.set(type, (exportManifest.entries || []).filter(entry => entry.content_type_slug === type && entry.status === 'published'));
     return;
   }
   await Promise.all(types.map(async type => {
@@ -218,6 +287,7 @@ async function main() {
   for (const file of ['assets/css/site.css','assets/js/site.js','assets/js/serviceup-static.js']) assetHash.update(await fs.readFile(path.join(root, file)));
   assetVersion = assetHash.digest('hex').slice(0, 12);
   await loadContent();
+  await loadMenu();
   await copyDir(path.join(root, 'assets'), path.join(out, 'assets'));
   await backupLegacy();
   const generated = [];
