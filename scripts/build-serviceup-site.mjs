@@ -178,19 +178,42 @@ const fallbackNav = [
 ];
 const navKey = value => cleanPath(value).replace(/\/$/, '') || '/';
 function resolvedNav() {
-  const overrides = new Map(serviceUpMenuItems.map((item, index) => [navKey(item.url), {...item,index}]));
-  const apply = item => {
-    const override = overrides.get(navKey(item.url));
-    return {
-      ...item,
-      ...(override ? {label:override.label,url:override.url,target:override.target,_order:override.index} : {}),
-      children:Array.isArray(item.children) ? item.children.map(apply) : undefined
+  if (!serviceUpMenuItems.length) return fallbackNav;
+
+  // ServiceUp is the source of truth. The ASAS-specific dropdowns are only a
+  // presentation layer: known leaf destinations are placed in their existing
+  // dropdown, while new destinations become top-level links. This means a
+  // changed URL, added/removed item, label edit, or reorder is not lost merely
+  // because it no longer matches the legacy hard-coded navigation.
+  const groupForPath = new Map();
+  for (const item of fallbackNav) {
+    for (const child of item.children || []) groupForPath.set(navKey(child.url), item.label);
+  }
+
+  const groups = new Map();
+  const output = [];
+  for (const source of serviceUpMenuItems) {
+    const item = {
+      label:source.label,
+      url:source.url,
+      target:source.target || '_self',
+      cta:navKey(source.url) === navKey('/contact/')
     };
-  };
-  const items = fallbackNav.map(apply);
-  const matchedTopLevel = items.filter(item => Number.isFinite(item._order)).length;
-  if (matchedTopLevel >= 2) items.sort((a,b) => (a._order ?? Number.MAX_SAFE_INTEGER) - (b._order ?? Number.MAX_SAFE_INTEGER));
-  return items;
+    const groupLabel = groupForPath.get(navKey(source.url));
+    if (!groupLabel) {
+      output.push(item);
+      continue;
+    }
+    let group = groups.get(groupLabel);
+    if (!group) {
+      const fallbackGroup = fallbackNav.find(candidate => candidate.label === groupLabel);
+      group = {label:groupLabel,url:fallbackGroup?.url || item.url,children:[]};
+      groups.set(groupLabel, group);
+      output.push(group);
+    }
+    group.children.push(item);
+  }
+  return output;
 }
 const anchor = (item, className = '') => `<a${className ? ` class="${className}"` : ''} ${linkAttrs({url:item.url,target:item.target})}>${esc(item.label)}</a>`;
 function renderNavigation() {
