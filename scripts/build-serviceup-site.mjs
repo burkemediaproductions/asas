@@ -111,7 +111,12 @@ const entryPath = (entry, type) => {
   const slug = entry.slug.replace(/^articles-/, '');
   if (type === 'page' && entry.slug === 'home') return '/';
   if (type === 'article') return `/articles/${slug}/`;
-  if (type === 'story') return entry.slug === 'justice-for-anna' ? '/justice-for-anna/' : `/justice-for-anna/${entry.slug.replace(/^justice-for-anna-/, '')}/`;
+  // A story prefixed with "justice-for-anna-" intentionally belongs beneath
+  // that section. Otherwise its ServiceUp slug controls the root-level URL.
+  // This avoids silently forcing every Story into a hard-coded site section.
+  if (type === 'story') return entry.slug.startsWith('justice-for-anna-')
+    ? `/justice-for-anna/${entry.slug.replace(/^justice-for-anna-/, '')}/`
+    : `/${entry.slug}/`;
   if (type === 'case-study') return `/case-studies/${entry.slug}/`;
   if (type === 'update') return `/updates/${entry.slug}/`;
   if (type === 'resource' && entry.data?.url) return cleanPath(entry.data.url);
@@ -283,6 +288,26 @@ async function writeRoute(route, html) {
   await fs.mkdir(directory, {recursive:true});
   await fs.writeFile(path.join(directory, 'index.html'), html);
 }
+const redirectPath = value => {
+  const pathValue = cleanPath(value);
+  return pathValue && pathValue.startsWith('/') ? pathValue : '';
+};
+function entryRedirects(entry, type, canonicalRoute) {
+  const redirects = [];
+  const configured = entry.data?.redirect_from ?? entry.data?.redirects_from ?? [];
+  const values = Array.isArray(configured) ? configured : String(configured || '').split(/[\n,]+/);
+  for (const value of values) {
+    const from = redirectPath(value);
+    if (from && from !== canonicalRoute) redirects.push([from, canonicalRoute]);
+  }
+
+  // Backward compatibility for Stories that were previously forced beneath
+  // /justice-for-anna/, before their ServiceUp slug became authoritative.
+  if (type === 'story' && !entry.slug.startsWith('justice-for-anna-')) {
+    redirects.push([`/justice-for-anna/${entry.slug}/`, canonicalRoute]);
+  }
+  return redirects;
+}
 async function backupLegacy() {
   const destination = path.join(out, legacyBase.slice(1));
   const excluded = new Set(['.git','dist','scripts','netlify.toml','package.json','package-lock.json','serviceup']);
@@ -314,6 +339,7 @@ async function main() {
   await copyDir(path.join(root, 'assets'), path.join(out, 'assets'));
   await backupLegacy();
   const generated = [];
+  const redirects = [];
   for (const type of ['page','article','story','assessment','case-study','resource','update']) {
     for (const entry of entries(type)) {
       const d = entry.data || {}, panels = d.panels?.panels || [];
@@ -322,13 +348,20 @@ async function main() {
       const body = type === 'article' ? renderArticle(entry) : type === 'assessment' && d.questions?.length ? renderAssessment(entry) : (panels.map((item, index) => `${index ? divider(item.data?.theme) : ''}${panel(item)}`).join('') || `<section class="section light-section"><div class="container prose"><h1>${esc(entry.title)}</h1>${rich(d.body)}</div></section>`);
       await writeRoute(route, documentHtml(entry, type, body, route));
       generated.push(route);
+      redirects.push(...entryRedirects(entry, type, route));
     }
   }
+  const annasLegacyRoute = generated.includes('/annas-legacy-the-story-behind-asas/')
+    ? '/annas-legacy-the-story-behind-asas/'
+    : '';
+  if (annasLegacyRoute) redirects.push(['/justice-for-anna/', annasLegacyRoute]);
   const notFound = {title:'Page not found',data:{seo_title:'Page not found | ASAS',seo_description:'The requested ASAS page could not be found.'}};
   await fs.writeFile(path.join(out, '404.html'), documentHtml(notFound, 'page', '<section class="error-page"><div class="container narrow"><p class="eyebrow">404</p><h1>Page not found</h1><p>The page you requested could not be found.</p><a class="btn yellow" href="/">Return home</a></div></section>', '/404'));
   await fs.writeFile(path.join(out, 'robots.txt'), `User-agent: *\nAllow: /\nDisallow: ${legacyBase}/\nSitemap: ${siteUrl}/sitemap.xml\n`);
   await fs.writeFile(path.join(out, '_headers'), `${legacyBase}/*\n  X-Robots-Tag: noindex, nofollow, noarchive\n\n/assets/*\n  Cache-Control: public, max-age=86400, stale-while-revalidate=604800\n\n/*.html\n  Cache-Control: public, max-age=0, must-revalidate\n`);
-  await fs.writeFile(path.join(out, '_redirects'), `/legacy-reference-2026 /legacy-reference-2026/ 301\n/serviceup / 301\n/serviceup/ / 301\n/serviceup/* /:splat 301\n/404 /404.html 404\n`);
+  const uniqueRedirects = [...new Map(redirects.map(([from, to]) => [from, to])).entries()];
+  const contentRedirects = uniqueRedirects.map(([from, to]) => `${from} ${to} 301`).join('\n');
+  await fs.writeFile(path.join(out, '_redirects'), `/legacy-reference-2026 /legacy-reference-2026/ 301\n/serviceup / 301\n/serviceup/ / 301\n/serviceup/* /:splat 301\n${contentRedirects ? `${contentRedirects}\n` : ''}/404 /404.html 404\n`);
   const urls = generated.filter(route => route !== '/thank-you-contact/').map(route => `<url><loc>${siteUrl}${route}</loc></url>`).join('');
   await fs.writeFile(path.join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`);
   await fs.writeFile(path.join(out, 'serviceup-cache-manifest.json'), JSON.stringify({generated_at:new Date().toISOString(),api,route_count:generated.length,routes:generated}, null, 2));
