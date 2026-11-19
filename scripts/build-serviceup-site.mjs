@@ -137,8 +137,9 @@ function collectionMarkup(type, layout, label = '') {
 }
 function panel(item) {
   const d = item.data || {}, theme = themeClass(d.theme), head = `${d.eyebrow ? `<p class="eyebrow">${esc(d.eyebrow)}</p>` : ''}${d.heading ? `<h2>${esc(d.heading)}</h2>` : ''}`;
+  const anchor = String(d.anchor_id || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
   if (item.type === 'hero') return renderHero(d);
-  if (item.type === 'editorial_section') return `<section class="section ${theme}"><div class="container ${d.side_heading ? 'prose-grid' : ''}"><article class="prose reveal in-view">${head}${rich(d.body)}</article>${d.side_heading ? `<aside class="side-card reveal in-view"><p class="eyebrow">${esc(d.side_eyebrow)}</p><h2>${esc(d.side_heading)}</h2>${rich(d.side_body)}${d.side_link_label ? `<a class="text-link" ${linkAttrs(d.side_link_url)}>${esc(d.side_link_label)}</a>` : ''}</aside>` : ''}</div></section>`;
+  if (item.type === 'editorial_section') return `<section${anchor ? ` id="${attr(anchor)}"` : ''} class="section ${theme}"><div class="container ${d.side_heading ? 'prose-grid' : ''}"><article class="prose reveal in-view">${head}${rich(d.body)}</article>${d.side_heading ? `<aside class="side-card reveal in-view"><p class="eyebrow">${esc(d.side_eyebrow)}</p><h2>${esc(d.side_heading)}</h2>${rich(d.side_body)}${d.side_link_label ? `<a class="text-link" ${linkAttrs(d.side_link_url)}>${esc(d.side_link_label)}</a>` : ''}</aside>` : ''}</div></section>`;
   if (item.type === 'image_text') return `<section class="section ${theme}"><div class="container split ${d.image_side === 'left' ? 'reverse' : ''}"><div class="reveal in-view">${head}${rich(d.body)}${d.button_label ? `<a class="text-link" ${linkAttrs(d.button_url)}>${esc(d.button_label)}</a>` : ''}</div>${d.image ? `<figure class="media-frame"><img loading="lazy" src="${attr(d.image)}" alt="${attr(d.image_alt)}"></figure>` : ''}</div></section>`;
   if (item.type === 'card_grid') return `<section class="section ${theme}"><div class="container"><div class="section-head reveal in-view">${head}${rich(d.intro)}</div><div class="card-grid three">${(d.cards || []).map(card).join('')}</div></div></section>`;
   if (item.type === 'feature_grid') return `<section class="section ${theme}"><div class="container"><div class="section-head reveal in-view">${head}${rich(d.intro)}</div><div class="story-grid">${(d.items || []).map((x, i) => `<article class="story-card ${i === 0 ? 'large ' : ''}reveal in-view">${x.image ? `<img loading="lazy" src="${attr(x.image)}" alt="${attr(x.image_alt)}">` : ''}<div>${x.eyebrow ? `<span class="tag">${esc(x.eyebrow)}</span>` : ''}<h3>${esc(x.title)}</h3><p>${esc(x.body)}</p><a ${linkAttrs(x.url)}>${esc(x.label || 'Read more →')}</a></div></article>`).join('')}</div></div></section>`;
@@ -164,12 +165,19 @@ function resolvedPanels(entry) {
   const source = Array.isArray(d.panels?.panels) ? d.panels.panels : [];
   const panels = structuredClone(source);
   const hero = panels.find(item => item.type === 'hero');
+  const isAnnasLegacy = entry.slug === 'annas-legacy-the-story-behind-asas';
   if (hero) {
     hero.data = {...(hero.data || {}), heading:entry.title};
     if (String(d.eyebrow || '').trim()) hero.data.eyebrow = d.eyebrow;
     if (String(d.summary || '').trim()) hero.data.summary = d.summary;
     if (String(d.hero_image || '').trim()) hero.data.background_image = d.hero_image;
     if (String(d.hero_alt || '').trim()) hero.data.background_alt = d.hero_alt;
+    // Anna's complete story lives in this same ServiceUp entry. Keep the
+    // primary call-to-action on-page instead of linking to a nonexistent URL.
+    if (isAnnasLegacy) {
+      hero.data.primary_label = hero.data.primary_label || 'Read Anna\'s Story';
+      hero.data.primary_url = '#annas-story';
+    }
   }
 
   // Keep imported panels for layout, but make the canonical ServiceUp Body
@@ -180,13 +188,17 @@ function resolvedPanels(entry) {
     const canonical = {
       id:original?.id || `${entry.slug}-body`,
       type:'editorial_section',
-      data:{...(original?.data || {}),heading:'',body:d.body}
+      data:{...(original?.data || {}),heading:'',body:d.body,...(isAnnasLegacy ? {anchor_id:'annas-story'} : {})}
     };
     const insertionPoint = firstEditorial >= 0 ? firstEditorial : Math.min(hero ? panels.indexOf(hero) + 1 : 0, panels.length);
     const withoutEditorial = panels.filter(item => item.type !== 'editorial_section');
     const editorialBefore = panels.slice(0, insertionPoint).filter(item => item.type !== 'editorial_section').length;
     withoutEditorial.splice(editorialBefore, 0, canonical);
     return withoutEditorial;
+  }
+  if (isAnnasLegacy) {
+    const editorial = panels.find(item => item.type === 'editorial_section');
+    if (editorial) editorial.data = {...(editorial.data || {}),anchor_id:'annas-story'};
   }
   return panels;
 }
@@ -390,7 +402,11 @@ async function main() {
   const annasLegacyRoute = generated.includes('/annas-legacy-the-story-behind-asas/')
     ? '/annas-legacy-the-story-behind-asas/'
     : '';
-  if (annasLegacyRoute) redirects.push(['/justice-for-anna/', annasLegacyRoute]);
+  if (annasLegacyRoute) {
+    redirects.push(['/justice-for-anna/', annasLegacyRoute]);
+    // Preserve the former button destination for visitors who may have saved it.
+    redirects.push(['/story-behind-asas/', `${annasLegacyRoute}#annas-story`]);
+  }
   const notFound = {title:'Page not found',data:{seo_title:'Page not found | ASAS',seo_description:'The requested ASAS page could not be found.'}};
   await fs.writeFile(path.join(out, '404.html'), documentHtml(notFound, 'page', '<section class="error-page"><div class="container narrow"><p class="eyebrow">404</p><h1>Page not found</h1><p>The page you requested could not be found.</p><a class="btn yellow" href="/">Return home</a></div></section>', '/404'));
   await fs.writeFile(path.join(out, 'robots.txt'), `User-agent: *\nAllow: /\nDisallow: ${legacyBase}/\nSitemap: ${siteUrl}/sitemap.xml\n`);
