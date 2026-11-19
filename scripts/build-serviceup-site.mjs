@@ -154,6 +154,42 @@ function articleBody(d) {
   const hasBody = body?.type === 'doc' && Array.isArray(body.content) && body.content.some(node => node.type !== 'paragraph' || (node.content?.length || 0) > 0);
   return hasBody ? body : (d.panels?.panels || []).find(item => item.type === 'editorial_section')?.data?.body;
 }
+function hasRichBody(body) {
+  return body?.type === 'doc' && Array.isArray(body.content) && body.content.some(node =>
+    node.type !== 'paragraph' || (Array.isArray(node.content) && node.content.some(child => String(child?.text || '').trim() || child?.type !== 'text'))
+  );
+}
+function resolvedPanels(entry) {
+  const d = entry.data || {};
+  const source = Array.isArray(d.panels?.panels) ? d.panels.panels : [];
+  const panels = structuredClone(source);
+  const hero = panels.find(item => item.type === 'hero');
+  if (hero) {
+    hero.data = {...(hero.data || {}), heading:entry.title};
+    if (String(d.eyebrow || '').trim()) hero.data.eyebrow = d.eyebrow;
+    if (String(d.summary || '').trim()) hero.data.summary = d.summary;
+    if (String(d.hero_image || '').trim()) hero.data.background_image = d.hero_image;
+    if (String(d.hero_alt || '').trim()) hero.data.background_alt = d.hero_alt;
+  }
+
+  // Keep imported panels for layout, but make the canonical ServiceUp Body
+  // authoritative as soon as an editor adds real content to that field.
+  if (hasRichBody(d.body)) {
+    const firstEditorial = panels.findIndex(item => item.type === 'editorial_section');
+    const original = firstEditorial >= 0 ? panels[firstEditorial] : null;
+    const canonical = {
+      id:original?.id || `${entry.slug}-body`,
+      type:'editorial_section',
+      data:{...(original?.data || {}),heading:'',body:d.body}
+    };
+    const insertionPoint = firstEditorial >= 0 ? firstEditorial : Math.min(hero ? panels.indexOf(hero) + 1 : 0, panels.length);
+    const withoutEditorial = panels.filter(item => item.type !== 'editorial_section');
+    const editorialBefore = panels.slice(0, insertionPoint).filter(item => item.type !== 'editorial_section').length;
+    withoutEditorial.splice(editorialBefore, 0, canonical);
+    return withoutEditorial;
+  }
+  return panels;
+}
 function renderArticle(entry) {
   const d = entry.data || {};
   const hero = renderHero({eyebrow:d.eyebrow || 'Insight',heading:entry.title,summary:d.summary || '',background_image:d.hero_image || '',variant:'standard'});
@@ -342,7 +378,7 @@ async function main() {
   const redirects = [];
   for (const type of ['page','article','story','assessment','case-study','resource','update']) {
     for (const entry of entries(type)) {
-      const d = entry.data || {}, panels = d.panels?.panels || [];
+      const d = entry.data || {}, panels = resolvedPanels(entry);
       const route = entryPath(entry, type);
       if (/^(https?:|mailto:|tel:|#)/.test(route)) continue;
       const body = type === 'article' ? renderArticle(entry) : type === 'assessment' && d.questions?.length ? renderAssessment(entry) : (panels.map((item, index) => `${index ? divider(item.data?.theme) : ''}${panel(item)}`).join('') || `<section class="section light-section"><div class="container prose"><h1>${esc(entry.title)}</h1>${rich(d.body)}</div></section>`);
