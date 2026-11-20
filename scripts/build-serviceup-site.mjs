@@ -185,10 +185,16 @@ function resolvedPanels(entry) {
   if (hasRichBody(d.body)) {
     const firstEditorial = panels.findIndex(item => item.type === 'editorial_section');
     const original = firstEditorial >= 0 ? panels[firstEditorial] : null;
+    // Anna's complete long-form story is edited in the Story's editorial
+    // panel. Its top-level Body is a shorter introduction, so using that field
+    // here made the live page disagree with ServiceUp Preview.
+    const renderedBody = isAnnasLegacy && hasRichBody(original?.data?.body)
+      ? original.data.body
+      : d.body;
     const canonical = {
       id:original?.id || `${entry.slug}-body`,
       type:'editorial_section',
-      data:{...(original?.data || {}),heading:'',body:d.body,...(isAnnasLegacy ? {anchor_id:'annas-story'} : {})}
+      data:{...(original?.data || {}),heading:'',body:renderedBody,...(isAnnasLegacy ? {anchor_id:'annas-story'} : {})}
     };
     const insertionPoint = firstEditorial >= 0 ? firstEditorial : Math.min(hero ? panels.indexOf(hero) + 1 : 0, panels.length);
     const withoutEditorial = panels.filter(item => item.type !== 'editorial_section');
