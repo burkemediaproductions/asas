@@ -18,6 +18,13 @@ let exportManifest = null;
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const attr = esc;
+const mediaUrl = value => {
+  if (!value) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'object') return String(value.url || value.src || value.path || value.public_url || value.signed_url || '').trim();
+  return '';
+};
+const mediaAlt = value => typeof value === 'object' && value ? String(value.alt || value.alt_text || value.title || '').trim() : '';
 const cleanPath = value => {
   let raw = typeof value === 'object' && value ? (value.url || value.href || value.path || '') : value;
   if (!raw) return '';
@@ -75,7 +82,8 @@ const buttons = d => {
   return output.length ? `<div class="hero-actions">${output.join('')}</div>` : '';
 };
 function renderHero(d = {}) {
-  const background = d.background_image ? ` style="--hero-image:url('${attr(d.background_image)}')"` : '';
+  const heroImage = mediaUrl(d.background_image);
+  const background = heroImage ? ` style="--hero-image:url('${attr(heroImage)}')"` : '';
   const accent = String(d.heading_accent || '').trim();
   let heading = esc(d.heading || '');
   if (accent && d.accent_position !== 'hidden') heading = d.accent_position === 'before' ? `<span class="accent">${esc(accent)}</span> ${heading}` : `${heading} <span class="accent">${esc(accent)}</span>`;
@@ -124,14 +132,27 @@ const entryPath = (entry, type) => {
   return `/${entry.slug.replace(/^professionals-/, 'professionals/')}/`;
 };
 const summary = entry => entry.data?.summary || entry.data?.description || entry.data?.definition || entry.data?.answer || '';
+function searchableText(value) {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (Array.isArray(value)) return value.map(searchableText).join(' ');
+  if (typeof value === 'object') {
+    return Object.entries(value)
+      .filter(([key]) => !['legacy_html','canonical_url','source_path','url','href','image','hero_image','background_image'].includes(key))
+      .map(([, child]) => searchableText(child))
+      .join(' ');
+  }
+  return '';
+}
+const contentTypeLabel = type => ({page:'Page',article:'Insight',story:'Story',assessment:'Assessment','case-study':'Case study',resource:'Resource',update:'Update'}[type] || 'Page');
 function collectionMarkup(type, layout, label = '') {
   let list = [...entries(type)];
-  if (type === 'article' || type === 'update') list.sort(newestFirst);
+  if (type === 'article' || type === 'story' || type === 'update') list.sort(newestFirst);
   if (layout === 'accordion') return list.map(entry => `<details class="faq"><summary>${esc(entry.title)}<span>+</span></summary><div>${rich(entry.data?.answer || entry.data?.body || entry.data?.description)}</div></details>`).join('');
   if (layout === 'glossary') return `<div class="glossary-list">${list.map(entry => `<article class="glossary-item"><h2>${esc(entry.title)}</h2>${rich(entry.data?.definition || entry.data?.description)}</article>`).join('')}</div>`;
   return `<div class="article-grid">${list.map(entry => {
     const d = entry.data || {};
-    const image = d.featured_image || d.featured_image_url || d.image || d.hero_image || (articleImages[entry.slug] ? `/assets/img/${articleImages[entry.slug]}` : '');
+    const image = mediaUrl(d.featured_image || d.featured_image_url || d.image || d.hero_image) || mediaUrl((d.panels?.panels || []).find(item => item.type === 'hero')?.data?.background_image) || (articleImages[entry.slug] ? `/assets/img/${articleImages[entry.slug]}` : '');
     return `<article class="article-card reveal in-view">${image ? `<img loading="lazy" src="${attr(image)}" alt="${attr(d.featured_image_alt || entry.title)}">` : ''}<div>${type === 'article' ? `<p class="eyebrow">${esc(d.eyebrow || 'Insight')}</p>` : ''}<h2>${esc(entry.title)}</h2>${typeof summary(entry) === 'object' ? rich(summary(entry)) : `<p>${esc(summary(entry))}</p>`}<a class="text-link" href="${attr(entryPath(entry, type))}">${esc(label || (type === 'article' ? 'Read article →' : 'Read more →'))}</a></div></article>`;
   }).join('')}</div>`;
 }
@@ -140,7 +161,10 @@ function panel(item) {
   const anchor = String(d.anchor_id || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
   if (item.type === 'hero') return renderHero(d);
   if (item.type === 'editorial_section') return `<section${anchor ? ` id="${attr(anchor)}"` : ''} class="section ${theme}"><div class="container ${d.side_heading ? 'prose-grid' : ''}"><article class="prose reveal in-view">${head}${rich(d.body)}</article>${d.side_heading ? `<aside class="side-card reveal in-view"><p class="eyebrow">${esc(d.side_eyebrow)}</p><h2>${esc(d.side_heading)}</h2>${rich(d.side_body)}${d.side_link_label ? `<a class="text-link" ${linkAttrs(d.side_link_url)}>${esc(d.side_link_label)}</a>` : ''}</aside>` : ''}</div></section>`;
-  if (item.type === 'image_text') return `<section class="section ${theme}"><div class="container split ${d.image_side === 'left' ? 'reverse' : ''}"><div class="reveal in-view">${head}${rich(d.body)}${d.button_label ? `<a class="text-link" ${linkAttrs(d.button_url)}>${esc(d.button_label)}</a>` : ''}</div>${d.image ? `<figure class="media-frame"><img loading="lazy" src="${attr(d.image)}" alt="${attr(d.image_alt)}"></figure>` : ''}</div></section>`;
+  if (item.type === 'image_text') {
+    const image = mediaUrl(d.image);
+    return `<section class="section ${theme}"><div class="container split ${d.image_side === 'left' ? 'reverse' : ''}"><div class="reveal in-view">${head}${rich(d.body)}${d.button_label ? `<a class="text-link" ${linkAttrs(d.button_url)}>${esc(d.button_label)}</a>` : ''}</div>${image ? `<figure class="media-frame"><img loading="lazy" src="${attr(image)}" alt="${attr(d.image_alt || mediaAlt(d.image))}"></figure>` : ''}</div></section>`;
+  }
   if (item.type === 'card_grid') return `<section class="section ${theme}"><div class="container"><div class="section-head reveal in-view">${head}${rich(d.intro)}</div><div class="card-grid three">${(d.cards || []).map(card).join('')}</div></div></section>`;
   if (item.type === 'feature_grid') return `<section class="section ${theme}"><div class="container"><div class="section-head reveal in-view">${head}${rich(d.intro)}</div><div class="story-grid">${(d.items || []).map((x, i) => `<article class="story-card ${i === 0 ? 'large ' : ''}reveal in-view">${x.image ? `<img loading="lazy" src="${attr(x.image)}" alt="${attr(x.image_alt)}">` : ''}<div>${x.eyebrow ? `<span class="tag">${esc(x.eyebrow)}</span>` : ''}<h3>${esc(x.title)}</h3><p>${esc(x.body)}</p><a ${linkAttrs(x.url)}>${esc(x.label || 'Read more →')}</a></div></article>`).join('')}</div></div></section>`;
   if (item.type === 'quote_cta') return `<section class="section ${theme} quote-section"><div class="container narrow reveal in-view">${head}<blockquote>${esc(d.quote)}</blockquote>${rich(d.body)}${d.button_label ? `<a class="btn yellow" ${linkAttrs(d.button_url)}>${esc(d.button_label)}</a>` : ''}</div></section>`;
@@ -170,8 +194,15 @@ function resolvedPanels(entry) {
     hero.data = {...(hero.data || {}), heading:entry.title};
     if (String(d.eyebrow || '').trim()) hero.data.eyebrow = d.eyebrow;
     if (String(d.summary || '').trim()) hero.data.summary = d.summary;
-    if (String(d.hero_image || '').trim()) hero.data.background_image = d.hero_image;
-    if (String(d.hero_alt || '').trim()) hero.data.background_alt = d.hero_alt;
+    const canonicalHeroImage = mediaUrl(d.hero_image);
+    // The homepage's approved hero photograph is a local design asset. The
+    // imported top-level media field points at a different legacy image, so it
+    // must not replace the intended homepage composition during a cache build.
+    if (entry.slug === 'home') {
+      hero.data.background_image = '/assets/img/homepage.jpeg';
+      hero.data.background_alt = 'Two people standing together by the water at a seaside pier';
+    } else if (canonicalHeroImage) hero.data.background_image = canonicalHeroImage;
+    if (entry.slug !== 'home' && String(d.hero_alt || mediaAlt(d.hero_image) || '').trim()) hero.data.background_alt = d.hero_alt || mediaAlt(d.hero_image);
     // Anna's complete story lives in this same ServiceUp entry. Keep the
     // primary call-to-action on-page instead of linking to a nonexistent URL.
     if (isAnnasLegacy) {
@@ -210,7 +241,8 @@ function resolvedPanels(entry) {
 }
 function renderArticle(entry) {
   const d = entry.data || {};
-  const hero = renderHero({eyebrow:d.eyebrow || 'Insight',heading:entry.title,summary:d.summary || '',background_image:d.hero_image || '',variant:'standard'});
+  const panelHero = (d.panels?.panels || []).find(item => item.type === 'hero')?.data || {};
+  const hero = renderHero({eyebrow:d.eyebrow || 'Insight',heading:entry.title,summary:d.summary || '',background_image:mediaUrl(d.hero_image) || mediaUrl(panelHero.background_image),variant:'standard'});
   const callout = d.callout_heading ? `<aside class="side-card reveal in-view">${d.callout_eyebrow ? `<p class="eyebrow">${esc(d.callout_eyebrow)}</p>` : ''}<h2>${esc(d.callout_heading)}</h2>${rich(d.callout_body)}${d.callout_link_label ? `<a class="text-link" ${linkAttrs(d.callout_link_url)}>${esc(d.callout_link_label)}</a>` : ''}</aside>` : '';
   return `${hero}${divider('light')}<section class="section light-section"><div class="container ${callout ? 'prose-grid' : ''}"><article class="prose reveal in-view">${rich(articleBody(d))}</article>${callout}</div></section>`;
 }
@@ -237,7 +269,7 @@ const fallbackNav = [
 ];
 const navKey = value => cleanPath(value).replace(/\/$/, '') || '/';
 function resolvedNav() {
-  if (!serviceUpMenuItems.length) return fallbackNav;
+  if (!serviceUpMenuItems.length) return addStoriesToNav(fallbackNav);
 
   // ServiceUp is the source of truth. The ASAS-specific dropdowns are only a
   // presentation layer: known leaf destinations are placed in their existing
@@ -272,6 +304,23 @@ function resolvedNav() {
     }
     group.children.push(item);
   }
+  return addStoriesToNav(output);
+}
+function addStoriesToNav(items) {
+  const output = structuredClone(items);
+  const legacyIndex = output.findIndex(item => ['/justice-for-anna','/annas-legacy-the-story-behind-asas'].includes(navKey(item.url)));
+  if (legacyIndex >= 0) {
+    const legacy = output[legacyIndex];
+    output[legacyIndex] = {
+      ...legacy,
+      children:[
+        {label:legacy.label || "Anna's Legacy",url:legacy.url,target:legacy.target || '_self'},
+        {label:'All Stories',url:'/stories/',target:'_self'}
+      ]
+    };
+  } else {
+    output.push({label:'Stories',url:'/stories/',target:'_self'});
+  }
   return output;
 }
 const anchor = (item, className = '') => `<a${className ? ` class="${className}"` : ''} ${linkAttrs({url:item.url,target:item.target})}>${esc(item.label)}</a>`;
@@ -283,9 +332,11 @@ function renderNavigation() {
   }).join('');
   const mobileItems = [{label:'Home',url:'/'}, ...items.flatMap(item => item.children?.length ? [item, ...item.children] : [item])];
   const mobile = mobileItems.map(item => anchor(item, 'mobile-menu-link')).join('');
-  return `<header class="site-header" data-header><div class="nav-shell"><a aria-label="ASAS home" class="brand" href="/"><span aria-hidden="true" class="brand-mark">A</span><span><strong>ASAS</strong><small>Adult Sibling Alienation Syndrome</small></span></a><nav aria-label="Primary navigation" class="desktop-nav">${desktop}</nav><button aria-controls="mobile-menu" aria-expanded="false" aria-label="Open menu" class="menu-toggle" data-menu-toggle><span></span><span></span><span></span></button></div></header><div aria-hidden="true" class="mobile-menu" data-mobile-menu id="mobile-menu"><div class="mobile-menu-inner">${mobile}</div></div>`;
+  const desktopSearch = `<div class="nav-search" data-nav-search><button class="search-toggle" type="button" aria-label="Search ASAS" aria-expanded="false" data-search-toggle><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg></button><form action="/search/" class="nav-search-form" role="search"><label class="sr-only" for="desktop-site-search">Search the ASAS website</label><input id="desktop-site-search" name="q" type="search" placeholder="Search the site…" autocomplete="off"><button type="submit">Search</button></form></div>`;
+  const mobileSearch = `<form action="/search/" class="mobile-site-search" role="search"><label for="mobile-site-search">Search ASAS</label><div><input id="mobile-site-search" name="q" type="search" placeholder="What are you looking for?" autocomplete="off"><button type="submit" aria-label="Submit search">Search</button></div></form>`;
+  return `<header class="site-header" data-header><div class="nav-shell"><a aria-label="ASAS home" class="brand" href="/"><span aria-hidden="true" class="brand-mark">A</span><span><strong>ASAS</strong><small>Adult Sibling Alienation Syndrome</small></span></a><nav aria-label="Primary navigation" class="desktop-nav">${desktop}${desktopSearch}</nav><button aria-controls="mobile-menu" aria-expanded="false" aria-label="Open menu" class="menu-toggle" data-menu-toggle><span></span><span></span><span></span></button></div></header><div aria-hidden="true" class="mobile-menu" data-mobile-menu id="mobile-menu"><div class="mobile-menu-inner">${mobileSearch}${mobile}</div></div>`;
 }
-const footer = `<footer class="site-footer"><div class="footer-grid"><div><div class="brand footer-brand"><span class="brand-mark">A</span><span><strong>ASAS</strong><small>Clarity in difficult family systems</small></span></div><p>Educational information about adult sibling alienation, vulnerable-parent safeguards, family systems and professional awareness.</p></div><div><h2>Explore</h2><a href="/">Home</a><a href="/start-here/">Start Here</a><a href="/resources/">Resources</a><a href="/articles/">Insights</a></div><div><h2>Connect</h2><a href="/contact/">Contact</a><a href="/share-your-story/">Share Your Story</a><a href="/updates/">Updates</a></div><div><h2>Important</h2><a href="/disclaimer/">Disclaimer</a><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a></div></div><div class="footer-bottom"><span>© 2026 ASAS. Educational resource only.</span><span>Powered by ServiceUp.</span></div></footer>`;
+const footer = `<footer class="site-footer"><div class="footer-grid"><div><div class="brand footer-brand"><span class="brand-mark">A</span><span><strong>ASAS</strong><small>Clarity in difficult family systems</small></span></div><p>Educational information about adult sibling alienation, vulnerable-parent safeguards, family systems and professional awareness.</p></div><div><h2>Explore</h2><a href="/">Home</a><a href="/start-here/">Start Here</a><a href="/resources/">Resources</a><a href="/articles/">Insights</a><a href="/stories/">Stories</a></div><div><h2>Connect</h2><a href="/contact/">Contact</a><a href="/share-your-story/">Share Your Story</a><a href="/updates/">Updates</a></div><div><h2>Important</h2><a href="/disclaimer/">Disclaimer</a><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a></div></div><div class="footer-bottom"><span>© 2026 ASAS. Educational resource only.</span><span>Powered by ServiceUp.</span></div></footer>`;
 const analyticsTag = analyticsId ? `<script async src="https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(analyticsId)}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${analyticsId}');</script>` : '';
 function documentHtml(entry, type, body, route) {
   const d = entry.data || {}, title = d.seo_title || `${entry.title} | ASAS`, description = d.seo_description || d.summary || '', canonical = d.canonical_url || `${siteUrl}${route}`;
@@ -405,6 +456,45 @@ async function main() {
       redirects.push(...entryRedirects(entry, type, route));
     }
   }
+  const storiesEntry = {
+    title:'Stories',
+    data:{
+      seo_title:'Stories | ASAS',
+      seo_description:'Read personal stories and reflections published by ASAS.'
+    }
+  };
+  const storiesBody = `${renderHero({eyebrow:'Personal narratives',heading:'Stories',summary:'Personal reflections and lived experiences that illuminate family alienation, autonomy, caregiving and the mission behind ASAS.',background_image:'/assets/img/pexels-trarete-73723862-8502323.jpg'})}${divider('light')}<section class="section light-section"><div class="container"><div class="section-head reveal in-view"><p class="eyebrow">Published stories</p><h2>Every ServiceUp Story, in one place.</h2><p>New published stories appear here automatically, newest first.</p></div>${collectionMarkup('story','grid','Read story →')}</div></section>`;
+  await writeRoute('/stories/', documentHtml(storiesEntry, 'page', storiesBody, '/stories/'));
+  generated.push('/stories/');
+
+  const searchEntry = {
+    title:'Search',
+    data:{
+      seo_title:'Search ASAS',
+      seo_description:'Search ASAS articles, stories, resources and educational pages.'
+    }
+  };
+  const searchBody = `<section class="search-page"><div class="container narrow"><p class="eyebrow">Find information</p><h1>Search ASAS</h1><p class="search-intro">Search articles, stories, resources, assessments and educational pages.</p><form action="/search/" class="search-page-form" role="search"><label for="site-search-query">Search the website</label><div><input autofocus id="site-search-query" name="q" type="search" placeholder="Try “caregiving,” “haircut,” or “isolation”" autocomplete="off"><button class="btn yellow" type="submit">Search</button></div></form><p class="search-status" data-search-status aria-live="polite"></p><div class="search-results" data-search-results></div></div></section>`;
+  await writeRoute('/search/', documentHtml(searchEntry, 'page', searchBody, '/search/'));
+  generated.push('/search/');
+
+  const searchIndex = [];
+  for (const type of ['page','article','story','assessment','case-study','resource','update']) {
+    for (const entry of entries(type)) {
+      const route = entryPath(entry, type);
+      if (/^(https?:|mailto:|tel:|#)/.test(route) || entry.slug === 'thank-you-contact') continue;
+      const d = entry.data || {};
+      searchIndex.push({
+        title:entry.title,
+        url:route,
+        type:contentTypeLabel(type),
+        summary:typeof summary(entry) === 'string' ? summary(entry) : searchableText(summary(entry)),
+        text:searchableText([entry.title,d.summary,d.description,d.body,d.panels])
+      });
+    }
+  }
+  searchIndex.push({title:'Stories',url:'/stories/',type:'Collection',summary:'Browse every published ASAS story.',text:'stories personal narratives reflections Anna legacy haircut'});
+  await fs.writeFile(path.join(out, 'search-index.json'), JSON.stringify(searchIndex));
   const annasLegacyRoute = generated.includes('/annas-legacy-the-story-behind-asas/')
     ? '/annas-legacy-the-story-behind-asas/'
     : '';
@@ -420,7 +510,7 @@ async function main() {
   const uniqueRedirects = [...new Map(redirects.map(([from, to]) => [from, to])).entries()];
   const contentRedirects = uniqueRedirects.map(([from, to]) => `${from} ${to} 301`).join('\n');
   await fs.writeFile(path.join(out, '_redirects'), `/legacy-reference-2026 /legacy-reference-2026/ 301\n/serviceup / 301\n/serviceup/ / 301\n/serviceup/* /:splat 301\n${contentRedirects ? `${contentRedirects}\n` : ''}/404 /404.html 404\n`);
-  const urls = generated.filter(route => route !== '/thank-you-contact/').map(route => `<url><loc>${siteUrl}${route}</loc></url>`).join('');
+  const urls = generated.filter(route => route !== '/thank-you-contact/' && route !== '/search/').map(route => `<url><loc>${siteUrl}${route}</loc></url>`).join('');
   await fs.writeFile(path.join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`);
   await fs.writeFile(path.join(out, 'serviceup-cache-manifest.json'), JSON.stringify({generated_at:new Date().toISOString(),api,route_count:generated.length,routes:generated}, null, 2));
   console.log(`Generated ${generated.length} ServiceUp pages in ${out}`);
